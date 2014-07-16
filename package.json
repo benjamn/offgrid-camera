@@ -1,0 +1,35 @@
+{
+  "name": "offgrid-camera",
+  "version": "0.0.1",
+  "description": "Node library for reading live video data from the Raspberry Pi camera module",
+  "author": {
+    "name": "Ben Newman",
+    "email": "bn@cs.stanford.edu"
+  },
+  "keywords": [
+    "raspberry pi",
+    "rpi",
+    "camera",
+    "opengl",
+    "video",
+    "node-gyp"
+  ],
+  "license": "MIT",
+  "readmeFilename": "README.md",
+  "main": "./index.js",
+  "homepage": "https://github.com/benjamn/offgrid-camera",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/benjamn/offgrid-camera.git"
+  },
+  "bugs": {
+    "url": "https://github.com/benjamn/offgrid-camera/issues"
+  },
+  "scripts": {
+    "install": "node-gyp rebuild"
+  },
+  "gypfile": true,
+  "engines": {
+    "node": ">= 0.8.0"
+  }
+}
