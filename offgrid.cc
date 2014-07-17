@@ -560,22 +560,24 @@ static Handle<Value>
 CaptureHandler(const Arguments& args) {
     Local<Object> data = args.Data()->ToObject();
     uint8_t *buffer = (uint8_t*) data->GetPointerFromInternalField(0);
-    size_t size = data->Get(String::New("size"))->Uint32Value();
     size_t w = sState->raspitex_state.width;
     size_t h = sState->raspitex_state.height;
     size_t x = args[0]->Uint32Value();
     size_t y = args[0]->Uint32Value();
-    fprintf(stderr, "w,h in CaptureHandler: %d,%d\n", w, h);
-    fprintf(stderr, "x,y in CaptureHandler: %d,%d\n", x, y);
-    fprintf(stderr, "size in CaptureHandler: %d\n", size);
-    fprintf(stderr, "buffer in CaptureHandler: %p\n", buffer);
+    size_t offset = (y * w + x) << 2;
+
+    if (offset < 0 ||
+        offset >= data->Get(String::New("size"))->Uint32Value()) {
+        return Handle<Value>();
+    }
 
     Local<Array> rgba = Array::New(4);
-    uint8_t *offset = buffer + ((y * w + x) << 2);
-    rgba->Set(0, Integer::New(offset[0]));
-    rgba->Set(1, Integer::New(offset[1]));
-    rgba->Set(2, Integer::New(offset[2]));
-    rgba->Set(3, Integer::New(offset[3]));
+
+    rgba->Set(0, Integer::New(buffer[offset + 0]));
+    rgba->Set(1, Integer::New(buffer[offset + 1]));
+    rgba->Set(2, Integer::New(buffer[offset + 2]));
+    rgba->Set(3, Integer::New(buffer[offset + 3]));
+
     return rgba;
 }
 
