@@ -5,6 +5,8 @@
 #include <node.h>
 #include <v8.h>
 
+#include "RaspiTex.h"
+
 using namespace v8;
 
 Handle<Value> Test(const Arguments& args) {
