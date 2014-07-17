@@ -67,7 +67,6 @@ public:
    int width;                          /// Requested width of image
    int height;                         /// requested height of image
    int quality;                        /// JPEG quality setting (1-100)
-   int wantRAW;                        /// Flag for whether the JPEG metadata also contains the RAW bayer image
    int verbose;                        /// !0 if want detailed run information
 
    RASPIPREVIEW_PARAMETERS preview_parameters;    /// Preview setup parameters
@@ -130,7 +129,6 @@ public:
        width = 2592;
        height = 1944;
        quality = 85;
-       wantRAW = 0;
        verbose = 0;
        camera_component = NULL;
        preview_connection = NULL;
@@ -198,7 +196,6 @@ public:
 #define CommandWidth        1
 #define CommandHeight       2
 #define CommandQuality      3
-#define CommandRaw          4
 #define CommandVerbose      6
 
 static COMMAND_LIST cmdline_commands[] =
@@ -207,7 +204,6 @@ static COMMAND_LIST cmdline_commands[] =
    { CommandWidth,   "-width",      "w",  "Set image width <size>", 1 },
    { CommandHeight,  "-height",     "h",  "Set image height <size>", 1 },
    { CommandQuality, "-quality",    "q",  "Set jpeg quality <0 to 100>", 1 },
-   { CommandRaw,     "-raw",        "r",  "Add raw bayer data to jpeg metadata", 0 },
    { CommandVerbose, "-verbose",    "v",  "Output verbose information during run", 0 },
    // When the program starts up, it should illuminate all the LEDs blue
    // so that we can adjust the camera to include as many of them as
@@ -291,10 +287,6 @@ static int parse_cmdline(int argc, const char **argv, OffGrid *state)
          else
             valid = 0;
 
-         break;
-
-      case CommandRaw: // Add raw bayer data in metadata
-         state->wantRAW = 1;
          break;
 
       case CommandVerbose: // display lots of data during run
