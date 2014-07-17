@@ -142,8 +142,8 @@ public:
    }
 
    void switch_scene() {
-       if (raspitex_state.scene_id != RASPITEX_SCENE_SHOWTIME) {
-           raspitex_state.scene_id = RASPITEX_SCENE_SHOWTIME;
+       if (raspitex_state.scene_id != RASPITEX_SCENE_ANIMATION) {
+           raspitex_state.scene_id = RASPITEX_SCENE_ANIMATION;
        } else {
            raspitex_state.scene_id = RASPITEX_SCENE_CALIBRATION;
        }

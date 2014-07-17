@@ -45,6 +45,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "tga.h"
 
 #include "gl_scenes/sobel.h"
+#include "gl_scenes/animation.h"
 #include "gl_scenes/calibration.h"
 #include "gl_scenes/showtime.h"
 
@@ -95,7 +96,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 static COMMAND_LIST cmdline_commands[] =
 {
-   { CommandGLScene, "-glscene",  "gs",  "GL scene showtime,sobel,calibration", 1 },
+   { CommandGLScene, "-glscene",  "gs",  "GL scene showtime,sobel,calibration,animation", 1 },
    { CommandGLWin,   "-glwin",    "gw",  "GL window settings <'x,y,w,h'>", 1 },
 };
 
@@ -153,6 +154,8 @@ int raspitex_parse_cmdline(RASPITEX_STATE *state,
             state->scene_id = RASPITEX_SCENE_SOBEL;
          else if (strcmp(arg2, "calibration") == 0)
             state->scene_id = RASPITEX_SCENE_CALIBRATION;
+         else if (strcmp(arg2, "animation") == 0)
+            state->scene_id = RASPITEX_SCENE_ANIMATION;
          else
             vcos_log_error("Unknown scene %s", arg2);
 
@@ -545,6 +548,8 @@ static int open_scene(RASPITEX_STATE *state) {
     return sobel_open(state);
   case RASPITEX_SCENE_CALIBRATION:
     return calibration_open(state);
+  case RASPITEX_SCENE_ANIMATION:
+    return animation_open(state);
   default:
     break;
   }
