@@ -80,6 +80,38 @@ public:
    MMAL_CONNECTION_T *preview_connection; /// Pointer to the connection from camera to preview
 
    RASPITEX_STATE raspitex_state; /// GL renderer state and parameters
+
+   ~OffGrid() {
+       if (verbose)
+           fprintf(stderr, "Closing down\n");
+
+       raspitex_stop(&raspitex_state);
+       raspitex_destroy(&raspitex_state);
+
+       // Disable ports that are not handled by connections.
+       MMAL_PORT_T *port = camera_component->output[MMAL_CAMERA_VIDEO_PORT];
+       if (port && port->is_enabled)
+           mmal_port_disable(port);
+
+       if (preview_connection)
+           mmal_connection_destroy(preview_connection);
+
+       if (preview_parameters.preview_component)
+           mmal_component_disable(preview_parameters.preview_component);
+
+       if (camera_component)
+           mmal_component_disable(camera_component);
+
+       raspipreview_destroy(&preview_parameters);
+
+       if (camera_component) {
+           mmal_component_destroy(camera_component);
+           camera_component = NULL;
+       }
+
+       if (verbose)
+           fprintf(stderr, "Close down completed, all components disconnected, disabled and destroyed\n\n");
+   }
 };
 
 static void display_valid_parameters(const char *app_name);
@@ -530,21 +562,6 @@ error:
 }
 
 /**
- * Destroy the camera component
- *
- * @param state Pointer to state control struct
- *
- */
-static void destroy_camera_component(OffGrid *state)
-{
-   if (state->camera_component)
-   {
-      mmal_component_destroy(state->camera_component);
-      state->camera_component = NULL;
-   }
-}
-
-/**
  * Allocates and generates a filename based on the
  * user-supplied pattern and the frame number.
  * On successful return, finalName and tempName point to malloc()ed strings
@@ -571,18 +588,6 @@ MMAL_STATUS_T create_filenames(char** finalName, char** tempName, char * pattern
       return MMAL_ENOMEM;    // It may be some other error, but it is not worth getting it right
    }
    return MMAL_SUCCESS;
-}
-
-/**
- * Checks if specified port is valid and enabled, then disables it
- *
- * @param port  Pointer the port
- *
- */
-static void check_disable_port(MMAL_PORT_T *port)
-{
-   if (port && port->is_enabled)
-      mmal_port_disable(port);
 }
 
 /**
@@ -721,7 +726,6 @@ int main(int argc, const char **argv)
    int exit_code = EX_OK;
 
    MMAL_STATUS_T status = MMAL_SUCCESS;
-   MMAL_PORT_T *camera_video_port = NULL;
 
    bcm_host_init();
 
@@ -777,17 +781,15 @@ int main(int argc, const char **argv)
       if (state.verbose)
           fprintf(stderr, "Starting component connection stage\n");
 
-      camera_video_port   = state.camera_component->output[MMAL_CAMERA_VIDEO_PORT];
-
       if (status != MMAL_SUCCESS) {
           mmal_status_to_int(status);
           vcos_log_error("%s: Failed to connect camera to preview", __func__);
-          goto error;
+          return -1;
       }
 
       /* If GL preview is requested then start the GL threads */
       if (raspitex_start(&state.raspitex_state) != 0)
-          goto error;
+          return -1;
 
       frame = 0;
 
@@ -807,7 +809,7 @@ int main(int argc, const char **argv)
                   status = create_filenames(&final_filename, &use_filename, state.filename, frame);
                   if (status != MMAL_SUCCESS) {
                       vcos_log_error("Unable to create filenames");
-                      goto error;
+                      return -1;
                   }
 
                   if (state.verbose)
@@ -843,33 +845,7 @@ int main(int argc, const char **argv)
           }
       } // end for (frame)
 
-error:
-
       mmal_status_to_int(status);
-
-      if (state.verbose)
-         fprintf(stderr, "Closing down\n");
-
-      raspitex_stop(&state.raspitex_state);
-      raspitex_destroy(&state.raspitex_state);
-
-      // Disable all our ports that are not handled by connections
-      check_disable_port(camera_video_port);
-
-      if (state.preview_connection)
-         mmal_connection_destroy(state.preview_connection);
-
-      if (state.preview_parameters.preview_component)
-         mmal_component_disable(state.preview_parameters.preview_component);
-
-      if (state.camera_component)
-         mmal_component_disable(state.camera_component);
-
-      raspipreview_destroy(&state.preview_parameters);
-      destroy_camera_component(&state);
-
-      if (state.verbose)
-         fprintf(stderr, "Close down completed, all components disconnected, disabled and destroyed\n\n");
    }
 
    if (status != MMAL_SUCCESS)
