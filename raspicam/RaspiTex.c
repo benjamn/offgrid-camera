@@ -704,6 +704,39 @@ int raspitex_start(RASPITEX_STATE *state)
    return (status == VCOS_SUCCESS ? 0 : -1);
 }
 
+uint8_t *raspitex_capture_to_buffer(RASPITEX_STATE *state, size_t *sizep) {
+  uint8_t *buffer = NULL;
+  *sizep = 0;
+
+  if (state) {
+    /* Only request one capture at a time */
+    vcos_semaphore_wait(&state->capture.start_sem);
+    state->capture.request = 1;
+
+    /* Wait for capture to start */
+    vcos_semaphore_wait(&state->capture.completed_sem);
+
+    /* Take ownership of the captured buffer */
+    buffer = state->capture.buffer;
+    *sizep = state->capture.size;
+
+    state->capture.request = 0;
+    state->capture.buffer = 0;
+    state->capture.size = 0;
+
+    /* Allow another capture to be requested */
+    vcos_semaphore_post(&state->capture.start_sem);
+  }
+
+  if (*sizep == 0 || !buffer) {
+    vcos_log_error("%s: capture failed", VCOS_FUNCTION);
+    free(buffer);
+    return NULL;
+  }
+
+  return buffer;
+}
+
 /**
  * Writes the next GL frame-buffer to a RAW .ppm formatted file
  * using the specified file-handle.
@@ -713,45 +746,20 @@ int raspitex_start(RASPITEX_STATE *state)
  */
 int raspitex_capture(RASPITEX_STATE *state, FILE *output_file)
 {
-   int rc = 0;
-   uint8_t *buffer = NULL;
    size_t size = 0;
 
    vcos_log_trace("%s: state %p file %p", VCOS_FUNCTION,
          state, output_file);
 
-   if (state && output_file)
-   {
-      /* Only request one capture at a time */
-      vcos_semaphore_wait(&state->capture.start_sem);
-      state->capture.request = 1;
+   uint8_t *buffer = raspitex_capture_to_buffer(state, &size);
 
-      /* Wait for capture to start */
-      vcos_semaphore_wait(&state->capture.completed_sem);
-
-      /* Take ownership of the captured buffer */
-      buffer = state->capture.buffer;
-      size = state->capture.size;
-
-      state->capture.request = 0;
-      state->capture.buffer = 0;
-      state->capture.size = 0;
-
-      /* Allow another capture to be requested */
-      vcos_semaphore_post(&state->capture.start_sem);
-   }
-   if (size == 0 || ! buffer)
-   {
-      vcos_log_error("%s: capture failed", VCOS_FUNCTION);
-      rc = -1;
-      goto end;
+   if (buffer == NULL) {
+     return -1;
    }
 
    raspitexutil_brga_to_rgba(buffer, size);
-   rc = write_tga(output_file, state->width, state->height, buffer, size);
+   int rc = write_tga(output_file, state->width, state->height, buffer, size);
    fflush(output_file);
-
-end:
    free(buffer);
    return rc;
 }

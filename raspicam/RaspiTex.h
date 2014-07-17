@@ -184,6 +184,7 @@ int raspitex_configure_preview_port(RASPITEX_STATE *state,
 void raspitex_display_help();
 int raspitex_parse_cmdline(RASPITEX_STATE *state,
       const char *arg1, const char *arg2);
+uint8_t *raspitex_capture_to_buffer(RASPITEX_STATE *state, size_t *sizep);
 int raspitex_capture(RASPITEX_STATE *state, FILE* output_file);
 
 #endif /* RASPITEX_H_ */
