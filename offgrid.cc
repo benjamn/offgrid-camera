@@ -566,8 +566,7 @@ CaptureHandler(const Arguments& args) {
     size_t y = args[0]->Uint32Value();
     size_t offset = (y * w + x) << 2;
 
-    if (offset < 0 ||
-        offset >= data->Get(String::New("size"))->Uint32Value()) {
+    if (offset >= data->Get(String::New("size"))->Uint32Value()) {
         return Handle<Value>();
     }
 
