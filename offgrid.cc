@@ -66,7 +66,6 @@ class OffGrid {
 public:
    int width;                          /// Requested width of image
    int height;                         /// requested height of image
-   int quality;                        /// JPEG quality setting (1-100)
    int verbose;                        /// !0 if want detailed run information
 
    RASPIPREVIEW_PARAMETERS preview_parameters;    /// Preview setup parameters
@@ -128,7 +127,6 @@ public:
    void set_defaults() {
        width = 2592;
        height = 1944;
-       quality = 85;
        verbose = 0;
        camera_component = NULL;
        preview_connection = NULL;
@@ -195,7 +193,6 @@ public:
 #define CommandHelp         0
 #define CommandWidth        1
 #define CommandHeight       2
-#define CommandQuality      3
 #define CommandVerbose      6
 
 static COMMAND_LIST cmdline_commands[] =
@@ -203,7 +200,6 @@ static COMMAND_LIST cmdline_commands[] =
    { CommandHelp,    "-help",       "?",  "This help information", 0 },
    { CommandWidth,   "-width",      "w",  "Set image width <size>", 1 },
    { CommandHeight,  "-height",     "h",  "Set image height <size>", 1 },
-   { CommandQuality, "-quality",    "q",  "Set jpeg quality <0 to 100>", 1 },
    { CommandVerbose, "-verbose",    "v",  "Output verbose information during run", 0 },
    // When the program starts up, it should illuminate all the LEDs blue
    // so that we can adjust the camera to include as many of them as
@@ -272,21 +268,6 @@ static int parse_cmdline(int argc, const char **argv, OffGrid *state)
             valid = 0;
          else
             i++;
-         break;
-
-      case CommandQuality: // Quality = 1-100
-         if (sscanf(argv[i + 1], "%u", &state->quality) == 1)
-         {
-            if (state->quality > 100)
-            {
-               fprintf(stderr, "Setting max quality = 100\n");
-               state->quality = 100;
-            }
-            i++;
-         }
-         else
-            valid = 0;
-
          break;
 
       case CommandVerbose: // display lots of data during run
