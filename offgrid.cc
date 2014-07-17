@@ -571,8 +571,8 @@ static void cleanup(void *arg) {
 
 void init(Handle<Object> target) {
     sState = new OffGrid();
-    const char *argv[] = { "--verbose" };
-    sState->init(1, argv);
+    const char *argv[] = { "offgrid", "--verbose" };
+    sState->init(2, argv);
     node::AtExit(cleanup, sState);
     NODE_SET_METHOD(target, "test", Test);
 }
