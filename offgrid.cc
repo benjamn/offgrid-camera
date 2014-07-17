@@ -49,10 +49,6 @@
 /// Video render needs at least 2 buffers.
 #define VIDEO_OUTPUT_BUFFERS_NUM 3
 
-/// Frame advance method
-#define FRAME_NEXT_KEYPRESS      2
-#define FRAME_NEXT_FOREVER       3
-
 
 class OffGrid;
 
@@ -61,7 +57,6 @@ static void signal_handler(int signal_number);
 static MMAL_STATUS_T create_camera_component(OffGrid *state);
 static int parse_cmdline(int argc, const char **argv, OffGrid *state);
 static void display_valid_parameters(const char *app_name);
-static int wait_for_next_frame(OffGrid *state, int *frame);
 
 /** Structure containing all state information for the current run
  */
@@ -72,7 +67,6 @@ public:
    int quality;                        /// JPEG quality setting (1-100)
    int wantRAW;                        /// Flag for whether the JPEG metadata also contains the RAW bayer image
    int verbose;                        /// !0 if want detailed run information
-   int frameNextMethod;                /// Which method to use to advance to next frame
 
    RASPIPREVIEW_PARAMETERS preview_parameters;    /// Preview setup parameters
    RASPICAM_CAMERA_PARAMETERS camera_parameters; /// Camera setup parameters
@@ -122,6 +116,12 @@ public:
        if (create_camera_component(this) != MMAL_SUCCESS) {
            vcos_log_error("%s: Failed to create camera component", __func__);
        }
+
+       /* If GL preview is requested then start the GL threads */
+       if (raspitex_start(&raspitex_state) != 0) {
+           fprintf(stderr, "failed to start raspitex\n");
+           exit(-1);
+       }
    }
 
    void set_defaults() {
@@ -132,7 +132,6 @@ public:
        verbose = 0;
        camera_component = NULL;
        preview_connection = NULL;
-       frameNextMethod = FRAME_NEXT_KEYPRESS;
 
        // Setup preview window defaults
        raspipreview_set_defaults(&preview_parameters);
@@ -144,32 +143,19 @@ public:
        raspitex_set_defaults(&raspitex_state);
    }
 
-   int loop() {
-       int frame, keep_looping = 1;
-       FILE *output_file = NULL;
-
-       if (verbose)
-           fprintf(stderr, "Starting component connection stage\n");
-
-       /* If GL preview is requested then start the GL threads */
-       if (raspitex_start(&raspitex_state) != 0)
-           return -1;
-
-       frame = 0;
-
-       while (keep_looping) {
-           keep_looping = wait_for_next_frame(this, &frame);
-
-           // We only capture if a filename was specified and it opened
-           if (output_file) {
-               /* Save the next GL framebuffer as the next camera still */
-               int rc = raspitex_capture(&raspitex_state, output_file);
-               if (rc != 0)
-                   vcos_log_error("Failed to capture GL preview");
-           }
+   void switch_scene() {
+       if (raspitex_state.scene_id != RASPITEX_SCENE_SHOWTIME) {
+           raspitex_state.scene_id = RASPITEX_SCENE_SHOWTIME;
+       } else {
+           raspitex_state.scene_id = RASPITEX_SCENE_CALIBRATION;
        }
 
-       return 0;
+       raspitex_restart(&raspitex_state);
+   }
+
+   void capture() {
+       // TODO
+       // int rc = raspitex_capture(&raspitex_state, output_file);
    }
 
    ~OffGrid() {
@@ -212,7 +198,6 @@ public:
 #define CommandQuality      3
 #define CommandRaw          4
 #define CommandVerbose      6
-#define CommandKeypress     15
 
 static COMMAND_LIST cmdline_commands[] =
 {
@@ -227,7 +212,6 @@ static COMMAND_LIST cmdline_commands[] =
    // possible in the frame. Then we press enter (TODO: Can we do this
    // without user input?) to tell it to perform calibration. When
    // calibration is done, it samples from the video preview.
-   { CommandKeypress,"-keypress",   "k",  "Wait between captures for a ENTER, X then ENTER to exit", 0},
 };
 
 static int cmdline_commands_size = sizeof(cmdline_commands) / sizeof(cmdline_commands[0]);
@@ -313,10 +297,6 @@ static int parse_cmdline(int argc, const char **argv, OffGrid *state)
 
       case CommandVerbose: // display lots of data during run
          state->verbose = 1;
-         break;
-
-      case CommandKeypress: // Set keypress between capture mode
-         state->frameNextMethod = FRAME_NEXT_KEYPRESS;
          break;
 
       default:
@@ -601,76 +581,6 @@ static void signal_handler(int signal_number)
       exit(130);
    }
 }
-
-
-/**
- * Function to wait in various ways (depending on settings) for the next frame
- *
- * @param state Pointer to the state data
- * @param [in][out] frame The last frame number, adjusted to next frame number on output
- * @return !0 if to continue, 0 if reached end of run
- */
-static int wait_for_next_frame(OffGrid *state, int *frame)
-{
-   int keep_running = 1;
-
-   switch (state->frameNextMethod)
-   {
-   case FRAME_NEXT_FOREVER :
-   {
-      *frame+=1;
-
-      // Have a sleep so we don't hog the CPU.
-      vcos_sleep(10000);
-
-      // Run forever so never indicate end of loop
-      return 1;
-   }
-
-   case FRAME_NEXT_KEYPRESS :
-   {
-    	int ch;
-
-    	if (state->verbose)
-         fprintf(stderr, "Press Enter to capture, X then ENTER to exit\n");
-
-    	ch = getchar();
-    	*frame+=1;
-    	if (ch == 'x' || ch == 'X')
-    	   return 0;
-    	else
-    	{
-          if (state->raspitex_state.scene_id != RASPITEX_SCENE_SHOWTIME) {
-            state->raspitex_state.scene_id = RASPITEX_SCENE_SHOWTIME;
-          } else {
-            state->raspitex_state.scene_id = RASPITEX_SCENE_CALIBRATION;
-          }
-
-          raspitex_restart(&state->raspitex_state);
-
-          return keep_running;
-    	}
-   }
-
-   } // end of switch
-
-   // Should have returned by now, but default to timeout
-   return keep_running;
-}
-
-/**
- * main
- */
-int main(int argc, const char **argv)
-{
-   // Our main data storage vessel..
-   OffGrid state;
-
-   state.init(argc, argv);
-
-   return state.loop();
-}
-
 
 using namespace v8;
 
