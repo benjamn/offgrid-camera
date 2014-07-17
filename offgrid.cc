@@ -62,15 +62,6 @@ static MMAL_STATUS_T create_camera_component(OffGrid *state);
 static int parse_cmdline(int argc, const char **argv, OffGrid *state);
 static void display_valid_parameters(const char *app_name);
 static int wait_for_next_frame(OffGrid *state, int *frame);
-static void rename_file(OffGrid *state,
-                        FILE *output_file,
-                        const char *final_filename,
-                        const char *use_filename,
-                        int frame);
-MMAL_STATUS_T create_filenames(char** finalName,
-                               char** tempName,
-                               char * pattern,
-                               int frame);
 
 /** Structure containing all state information for the current run
  */
@@ -80,8 +71,6 @@ public:
    int height;                         /// requested height of image
    int quality;                        /// JPEG quality setting (1-100)
    int wantRAW;                        /// Flag for whether the JPEG metadata also contains the RAW bayer image
-   char *filename;                     /// filename of output file
-   char *linkname;                     /// filename of output file
    int verbose;                        /// !0 if want detailed run information
    int frameNextMethod;                /// Which method to use to advance to next frame
 
@@ -140,8 +129,6 @@ public:
        height = 1944;
        quality = 85;
        wantRAW = 0;
-       filename = NULL;
-       linkname = NULL;
        verbose = 0;
        camera_component = NULL;
        preview_connection = NULL;
@@ -160,8 +147,6 @@ public:
    int loop() {
        int frame, keep_looping = 1;
        FILE *output_file = NULL;
-       char *use_filename = NULL;      // Temporary filename while image being written
-       char *final_filename = NULL;    // Name that file gets once writing complete
 
        if (verbose)
            fprintf(stderr, "Starting component connection stage\n");
@@ -175,52 +160,12 @@ public:
        while (keep_looping) {
            keep_looping = wait_for_next_frame(this, &frame);
 
-           // Open the file
-           if (filename) {
-               if (filename[0] == '-') {
-                   output_file = stdout;
-
-                   // Ensure we don't upset the output stream with diagnostics/info
-                   verbose = 0;
-
-               } else {
-                   vcos_assert(use_filename == NULL && final_filename == NULL);
-                   MMAL_STATUS_T status = create_filenames(&final_filename, &use_filename, filename, frame);
-                   if (status != MMAL_SUCCESS) {
-                       vcos_log_error("Unable to create filenames");
-                       return -1;
-                   }
-
-                   if (verbose)
-                       fprintf(stderr, "Opening output file %s\n", final_filename);
-                   // Technically it is opening the temp~ filename which will be ranamed to the final filename
-
-                   output_file = fopen(use_filename, "wb");
-
-                   if (!output_file) {
-                       // Notify user, carry on but discarding encoded output buffers
-                       vcos_log_error("%s: Error opening output file: %s\nNo output file will be generated\n", __func__, use_filename);
-                   }
-               }
-           }
-
            // We only capture if a filename was specified and it opened
            if (output_file) {
                /* Save the next GL framebuffer as the next camera still */
                int rc = raspitex_capture(&raspitex_state, output_file);
                if (rc != 0)
                    vcos_log_error("Failed to capture GL preview");
-               rename_file(this, output_file, final_filename, use_filename, frame);
-           }
-
-           if (use_filename) {
-               free(use_filename);
-               use_filename = NULL;
-           }
-
-           if (final_filename) {
-               free(final_filename);
-               final_filename = NULL;
            }
        }
 
@@ -266,9 +211,7 @@ public:
 #define CommandHeight       2
 #define CommandQuality      3
 #define CommandRaw          4
-#define CommandOutput       5
 #define CommandVerbose      6
-#define CommandLink         14
 #define CommandKeypress     15
 
 static COMMAND_LIST cmdline_commands[] =
@@ -278,8 +221,6 @@ static COMMAND_LIST cmdline_commands[] =
    { CommandHeight,  "-height",     "h",  "Set image height <size>", 1 },
    { CommandQuality, "-quality",    "q",  "Set jpeg quality <0 to 100>", 1 },
    { CommandRaw,     "-raw",        "r",  "Add raw bayer data to jpeg metadata", 0 },
-   { CommandOutput,  "-output",     "o",  "Output filename <filename> (to write to stdout, use '-o -'). If not specified, no file is saved", 1 },
-   { CommandLink,    "-latest",     "l",  "Link latest complete image to filename <filename>", 1},
    { CommandVerbose, "-verbose",    "v",  "Output verbose information during run", 0 },
    // When the program starts up, it should illuminate all the LEDs blue
    // so that we can adjust the camera to include as many of them as
@@ -370,37 +311,6 @@ static int parse_cmdline(int argc, const char **argv, OffGrid *state)
          state->wantRAW = 1;
          break;
 
-      case CommandOutput:  // output filename
-      {
-         int len = strlen(argv[i + 1]);
-         if (len) {
-             // leave enough space for any timelapse generated changes to filename
-             state->filename = (char*)malloc(len + 10);
-             vcos_assert(state->filename);
-             if (state->filename)
-                 strncpy(state->filename, argv[i + 1], len+1);
-             i++;
-         }
-         else
-            valid = 0;
-         break;
-      }
-
-      case CommandLink :
-      {
-         int len = strlen(argv[i+1]);
-         if (len) {
-             state->linkname = (char*)malloc(len + 10);
-             vcos_assert(state->linkname);
-             if (state->linkname)
-                 strncpy(state->linkname, argv[i + 1], len+1);
-             i++;
-         }
-         else
-            valid = 0;
-         break;
-
-      }
       case CommandVerbose: // display lots of data during run
          state->verbose = 1;
          break;
@@ -672,35 +582,6 @@ error:
 }
 
 /**
- * Allocates and generates a filename based on the
- * user-supplied pattern and the frame number.
- * On successful return, finalName and tempName point to malloc()ed strings
- * which must be freed externally.  (On failure, returns nulls that
- * don't need free()ing.)
- *
- * @param finalName pointer receives an
- * @param pattern sprintf pattern with %d to be replaced by frame
- * @param frame for timelapse, the frame number
- * @return Returns a MMAL_STATUS_T giving result of operation
-*/
-
-MMAL_STATUS_T create_filenames(char** finalName, char** tempName, char * pattern, int frame)
-{
-   *finalName = NULL;
-   *tempName = NULL;
-   if (0 > asprintf(finalName, pattern, frame) ||
-       0 > asprintf(tempName, "%s~", *finalName))
-   {
-      if (*finalName != NULL)
-      {
-         free(*finalName);
-      }
-      return MMAL_ENOMEM;    // It may be some other error, but it is not worth getting it right
-   }
-   return MMAL_SUCCESS;
-}
-
-/**
  * Handler for sigint signals
  *
  * @param signal_number ID of incoming signal.
@@ -775,38 +656,6 @@ static int wait_for_next_frame(OffGrid *state, int *frame)
 
    // Should have returned by now, but default to timeout
    return keep_running;
-}
-
-static void rename_file(OffGrid *state, FILE *output_file,
-      const char *final_filename, const char *use_filename, int frame)
-{
-   MMAL_STATUS_T status;
-
-   fclose(output_file);
-   vcos_assert(use_filename != NULL && final_filename != NULL);
-   if (0 != rename(use_filename, final_filename))
-   {
-      vcos_log_error("Could not rename temp file to: %s; %s",
-            final_filename,strerror(errno));
-   }
-   if (state->linkname)
-   {
-      char *use_link;
-      char *final_link;
-      status = create_filenames(&final_link, &use_link, state->linkname, frame);
-
-      // Create hard link if possible, symlink otherwise
-      if (status != MMAL_SUCCESS
-            || (0 != link(final_filename, use_link)
-               &&  0 != symlink(final_filename, use_link))
-            || 0 != rename(use_link, final_link))
-      {
-         vcos_log_error("Could not link as filename: %s; %s",
-               state->linkname,strerror(errno));
-      }
-      if (use_link) free(use_link);
-      if (final_link) free(final_link);
-   }
 }
 
 /**
