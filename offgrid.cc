@@ -23,10 +23,12 @@
 #include "interface/mmal/util/mmal_default_components.h"
 #include "interface/mmal/util/mmal_connection.h"
 
+extern "C" {
 #include "RaspiCamControl.h"
 #include "RaspiPreview.h"
 #include "RaspiCLI.h"
 #include "RaspiTex.h"
+}
 
 #include <semaphore.h>
 
