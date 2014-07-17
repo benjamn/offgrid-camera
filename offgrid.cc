@@ -584,17 +584,22 @@ static void signal_handler(int signal_number)
 
 using namespace v8;
 
+static OffGrid *sState = NULL;
+
 Handle<Value> Test(const Arguments& args) {
     return String::New("oyez");
 }
 
-static void cleanup(void *arg) {}
+static void cleanup(void *arg) {
+    delete (OffGrid*)arg;
+}
 
 void init(Handle<Object> target) {
-    node::AtExit(cleanup, NULL);
+    sState = new OffGrid();
+    const char *argv[] = { "--verbose" };
+    sState->init(1, argv);
+    node::AtExit(cleanup, sState);
     NODE_SET_METHOD(target, "test", Test);
-    // const char* argv[] = { "-k" };
-    // main(1, argv);
 }
 
 NODE_MODULE(offgrid, init);
