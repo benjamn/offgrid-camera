@@ -555,22 +555,26 @@ static void signal_handler(int signal_number)
 using namespace v8;
 
 static OffGrid *sState = NULL;
+static uint32_t sizeKey = 0;
+static uint32_t buffKey = 1;
 
 static Handle<Value>
 CaptureHandler(const Arguments& args) {
-    Local<Object> data = args.Data()->ToObject();
-    uint8_t *buffer = (uint8_t*) data->GetPointerFromInternalField(0);
+    Local<Array> data = Array::Cast(*args.Data());
+    uint8_t *buffer = (uint8_t*) data->Get(buffKey)->Uint32Value();
+
     size_t w = sState->raspitex_state.width;
     size_t h = sState->raspitex_state.height;
     size_t x = args[0]->Uint32Value();
-    size_t y = args[0]->Uint32Value();
+    size_t y = args[1]->Uint32Value();
     size_t offset = (y * w + x) << 2;
+    size_t size = data->Get(sizeKey)->Uint32Value();
 
-    if (offset >= data->Get(String::New("size"))->Uint32Value()) {
+    if (offset >= size) {
         return Handle<Value>();
     }
 
-    Local<Array> rgba = Array::New(4);
+    Handle<Array> rgba = Array::New(4);
 
     rgba->Set(0, Integer::New(buffer[offset + 0]));
     rgba->Set(1, Integer::New(buffer[offset + 1]));
@@ -585,11 +589,11 @@ Handle<Value> Capture(const Arguments& args) {
         size_t size = 0;
         uint8_t *buffer = raspitex_capture_to_buffer(&sState->raspitex_state, &size);
 
-        Local<Object> data = Object::New();
-        data->Set(String::New("size"), Integer::New(size));
-        data->SetPointerInInternalField(0, buffer);
+        Handle<Array> data = Array::New(2);
+        data->Set(sizeKey, Integer::New(size));
+        data->Set(buffKey, Uint32::New((uint32_t)buffer));
 
-        Local<FunctionTemplate> f =
+        Handle<FunctionTemplate> f =
             FunctionTemplate::New(CaptureHandler, data);
 
         Handle<Object> receiver = (args.Length() > 1)
