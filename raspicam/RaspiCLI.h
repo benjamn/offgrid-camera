@@ -32,9 +32,9 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 typedef struct
 {
    int id;
-   char *command;
-   char *abbrev;
-   char *help;
+   const char *command;
+   const char *abbrev;
+   const char *help;
    int num_parameters;
 } COMMAND_LIST;
 
