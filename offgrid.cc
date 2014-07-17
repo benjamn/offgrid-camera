@@ -52,7 +52,6 @@
 /// Frame advance method
 #define FRAME_NEXT_KEYPRESS      2
 #define FRAME_NEXT_FOREVER       3
-#define FRAME_NEXT_IMMEDIATELY   6
 
 
 class OffGrid;
@@ -770,23 +769,6 @@ static int wait_for_next_frame(OffGrid *state, int *frame)
 
           return keep_running;
     	}
-   }
-
-   case FRAME_NEXT_IMMEDIATELY :
-   {
-      // Not waiting, just go to next frame.
-      // Actually, we do need a slight delay here otherwise exposure goes
-      // badly wrong since we never allow it frames to work it out
-      // This could probably be tuned down.
-      // First frame has a much longer delay to ensure we get exposure to a steady state
-      if (*frame == 0)
-         vcos_sleep(1000);
-      else
-         vcos_sleep(30);
-
-      *frame+=1;
-
-      return keep_running;
    }
 
    } // end of switch
