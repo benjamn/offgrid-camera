@@ -87,42 +87,60 @@ static int shader_set_uniforms(RASPITEXUTIL_SHADER_PROGRAM_T *shader,
    return 0;
 }
 
-static char* read_file(const char* relative_name)
-{
-  size_t base_offset = strlen(__FILE__) - strlen("calibration.c");
-  size_t abs_length = base_offset + strlen(relative_name);
-  char* abs_name = (char*) malloc(sizeof(char) * (abs_length + 1));
+static const char* VERTEX_SHADER_SOURCE =
+  "attribute vec2 vertex;\n"                    \
+  "varying vec2 texcoord;\n"                    \
+  "\n"                                          \
+  "void main(void) {\n"                         \
+  "   texcoord = 0.5 * (vertex + 1.0);\n"       \
+  "   gl_Position = vec4(vertex, 0.0, 1.0);\n"  \
+  "}\n";
 
-  strcpy(abs_name, __FILE__);
-  abs_name[base_offset] = '\0';
-  strcat(abs_name, relative_name);
-
-  FILE* f = fopen(abs_name, "r");
-  free(abs_name);
-
-  if (f == NULL) {
-    return NULL;
-  }
-
-  fseek(f, 0, SEEK_END);
-  long len = ftell(f);
-  rewind(f);
-
-  char* buf = (char*) malloc(sizeof(char) * len);
-  if (buf == NULL) {
-    fclose(f);
-    return NULL;
-  }
-
-  if (fread(buf, sizeof(char), len, f) != len) {
-    fclose(f);
-    free(buf);
-    return NULL;
-  }
-
-  fclose(f);
-  return buf;
-}
+static const char* FRAGMENT_SHADER_SOURCE =
+  "#extension GL_OES_EGL_image_external : require\n"    \
+  "\n"                                                  \
+  "uniform samplerExternalOES tex;\n"                   \
+  "varying vec2 texcoord;\n"                            \
+  "uniform vec2 tex_unit;\n"                            \
+  "\n"                                                  \
+  "float sum(vec4 p) {\n"                               \
+  "  return p[0] + p[1] + p[2];\n"                      \
+  "}\n"                                                 \
+  "\n"                                                  \
+  "void main(void) {\n"                                 \
+  "    float x = texcoord.x;\n"                         \
+  "    float y = texcoord.y;\n"                         \
+  "    float x1 = x - tex_unit.x;\n"                    \
+  "    float y1 = y - tex_unit.y;\n"                    \
+  "    float x2 = x + tex_unit.x;\n"                    \
+  "    float y2 = y + tex_unit.y;\n"                    \
+  "    vec4 p0 = texture2D(tex, vec2(x1, y1));\n"       \
+  "    vec4 p1 = texture2D(tex, vec2(x, y1));\n"        \
+  "    vec4 p2 = texture2D(tex, vec2(x2, y1));\n"       \
+  "    vec4 p3 = texture2D(tex, vec2(x1, y));\n"        \
+  "    vec4 p4 = texture2D(tex, vec2(x, y));\n"         \
+  "    vec4 p5 = texture2D(tex, vec2(x2, y));\n"        \
+  "    vec4 p6 = texture2D(tex, vec2(x1, y2));\n"       \
+  "    vec4 p7 = texture2D(tex, vec2(x, y2));\n"        \
+  "    vec4 p8 = texture2D(tex, vec2(x2, y2));\n"       \
+  "\n"                                                  \
+  "    float sum4 = sum(p4);\n"                         \
+  "    if (sum4 >= 2.4 &&\n"                            \
+  "        sum4 == sum(p0) &&\n"                        \
+  "        sum4 == sum(p1) &&\n"                        \
+  "        sum4 == sum(p2) &&\n"                        \
+  "        sum4 == sum(p3) &&\n"                        \
+  "        sum4 == sum(p5) &&\n"                        \
+  "        sum4 == sum(p6) &&\n"                        \
+  "        sum4 == sum(p7) &&\n"                        \
+  "        sum4 == sum(p8)) {\n"                        \
+  "      gl_FragColor = p4;\n"                          \
+  "    } else {\n"                                      \
+  "      gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0);\n"    \
+  "    }\n"                                             \
+  "\n"                                                  \
+  "    gl_FragColor.a = 1.0;\n"                         \
+  "}\n";
 
 /**
  * Creates the OpenGL ES 2.X context and builds the shaders.
@@ -134,34 +152,29 @@ static int calibration_init(RASPITEX_STATE *raspitex_state)
     int rc = 0;
     int width = raspitex_state->width;
     int height = raspitex_state->height;
-    char* vsrc = read_file("calibration.vert");
-    char* fsrc = read_file("calibration.frag");
 
-    calibration_shader.vertex_source = vsrc;
-    calibration_shader.fragment_source = fsrc;
+    calibration_shader.vertex_source = VERTEX_SHADER_SOURCE;
+    calibration_shader.fragment_source = FRAGMENT_SHADER_SOURCE;
 
     vcos_log_trace("%s", VCOS_FUNCTION);
     raspitex_state->egl_config_attribs = calibration_egl_config_attribs;
     rc = raspitexutil_gl_init_2_0(raspitex_state);
     if (rc != 0)
-       goto end;
+      return rc;
 
     rc = raspitexutil_build_shader_program(&calibration_shader);
     if (rc != 0)
-       goto end;
+      return rc;
 
     rc = shader_set_uniforms(&calibration_shader, width, height);
     if (rc != 0)
-       goto end;
+      return rc;
 
     GLCHK(glGenBuffers(1, &quad_vbo));
     GLCHK(glBindBuffer(GL_ARRAY_BUFFER, quad_vbo));
     GLCHK(glBufferData(GL_ARRAY_BUFFER, sizeof(quad_varray), quad_varray, GL_STATIC_DRAW));
     GLCHK(glClearColor(0.0f, 0.0f, 0.0f, 1.0f));
 
-end:
-    free(vsrc);
-    free(fsrc);
     return rc;
 }
 
