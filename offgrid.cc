@@ -55,9 +55,13 @@
 #define FRAME_NEXT_IMMEDIATELY   6
 
 
+class OffGrid;
+
 int mmal_status_to_int(MMAL_STATUS_T status);
 static void signal_handler(int signal_number);
-
+static MMAL_STATUS_T create_camera_component(OffGrid *state);
+static int parse_cmdline(int argc, const char **argv, OffGrid *state);
+static void display_valid_parameters(const char *app_name);
 
 /** Structure containing all state information for the current run
  */
@@ -80,6 +84,47 @@ public:
    MMAL_CONNECTION_T *preview_connection; /// Pointer to the connection from camera to preview
 
    RASPITEX_STATE raspitex_state; /// GL renderer state and parameters
+
+   void init(int argc, const char *argv[]) {
+       bcm_host_init();
+
+       // Register our application with the logging system
+       vcos_log_register("OffGrid", VCOS_LOG_CATEGORY);
+
+       signal(SIGINT, signal_handler);
+
+       // Disable USR1 for the moment - may be reenabled if go in to signal capture mode
+       signal(SIGUSR1, SIG_IGN);
+
+       set_defaults();
+
+       // Do we have any parameters
+       if (argc == 1) {
+           fprintf(stderr, "\%s Camera App %s\n\n", basename(argv[0]), VERSION_STRING);
+           display_valid_parameters(basename(argv[0]));
+           exit(EX_USAGE);
+       }
+
+       // Parse the command line and put options in to our status structure
+       if (parse_cmdline(argc, argv, this)) {
+           exit(EX_USAGE);
+       }
+
+       if (verbose) {
+           fprintf(stderr, "\n%s Camera App %s\n\n", basename(argv[0]), VERSION_STRING);
+       }
+
+       raspitex_init(&raspitex_state);
+
+       // OK, we have a nice set of parameters. Now set up our components
+       // We have three components. Camera, Preview and encoder.
+       // Camera and encoder are different in stills/video, but preview
+       // is the same so handed off to a separate module
+
+       if (create_camera_component(this) != MMAL_SUCCESS) {
+           vcos_log_error("%s: Failed to create camera component", __func__);
+       }
+   }
 
    void set_defaults() {
        width = 2592;
@@ -135,8 +180,6 @@ public:
            fprintf(stderr, "Close down completed, all components disconnected, disabled and destroyed\n\n");
    }
 };
-
-static void display_valid_parameters(const char *app_name);
 
 /// Comamnd ID's and Structure defining our command line options
 #define CommandHelp         0
@@ -711,55 +754,9 @@ int main(int argc, const char **argv)
 {
    // Our main data storage vessel..
    OffGrid state;
-   int exit_code = EX_OK;
 
-   MMAL_STATUS_T status = MMAL_SUCCESS;
+   state.init(argc, argv);
 
-   bcm_host_init();
-
-   // Register our application with the logging system
-   vcos_log_register("OffGrid", VCOS_LOG_CATEGORY);
-
-   signal(SIGINT, signal_handler);
-
-   // Disable USR1 for the moment - may be reenabled if go in to signal capture mode
-   signal(SIGUSR1, SIG_IGN);
-
-   state.set_defaults();
-
-   // Do we have any parameters
-   if (argc == 1)
-   {
-      fprintf(stderr, "\%s Camera App %s\n\n", basename(argv[0]), VERSION_STRING);
-
-      display_valid_parameters(basename(argv[0]));
-      exit(EX_USAGE);
-   }
-
-   // Parse the command line and put options in to our status structure
-   if (parse_cmdline(argc, argv, &state))
-   {
-      exit(EX_USAGE);
-   }
-
-   if (state.verbose)
-   {
-      fprintf(stderr, "\n%s Camera App %s\n\n", basename(argv[0]), VERSION_STRING);
-   }
-
-   raspitex_init(&state.raspitex_state);
-
-   // OK, we have a nice set of parameters. Now set up our components
-   // We have three components. Camera, Preview and encoder.
-   // Camera and encoder are different in stills/video, but preview
-   // is the same so handed off to a separate module
-
-   if ((status = create_camera_component(&state)) != MMAL_SUCCESS)
-   {
-      vcos_log_error("%s: Failed to create camera component", __func__);
-      exit_code = EX_SOFTWARE;
-   }
-   else
    {
       int frame, keep_looping = 1;
       FILE *output_file = NULL;
@@ -768,12 +765,6 @@ int main(int argc, const char **argv)
 
       if (state.verbose)
           fprintf(stderr, "Starting component connection stage\n");
-
-      if (status != MMAL_SUCCESS) {
-          mmal_status_to_int(status);
-          vcos_log_error("%s: Failed to connect camera to preview", __func__);
-          return -1;
-      }
 
       /* If GL preview is requested then start the GL threads */
       if (raspitex_start(&state.raspitex_state) != 0)
@@ -794,7 +785,7 @@ int main(int argc, const char **argv)
 
               } else {
                   vcos_assert(use_filename == NULL && final_filename == NULL);
-                  status = create_filenames(&final_filename, &use_filename, state.filename, frame);
+                  MMAL_STATUS_T status = create_filenames(&final_filename, &use_filename, state.filename, frame);
                   if (status != MMAL_SUCCESS) {
                       vcos_log_error("Unable to create filenames");
                       return -1;
@@ -832,14 +823,9 @@ int main(int argc, const char **argv)
               final_filename = NULL;
           }
       } // end for (frame)
-
-      mmal_status_to_int(status);
    }
 
-   if (status != MMAL_SUCCESS)
-      raspicamcontrol_check_configuration(128);
-
-   return exit_code;
+   return 0;
 }
 
 
