@@ -62,6 +62,16 @@ static void signal_handler(int signal_number);
 static MMAL_STATUS_T create_camera_component(OffGrid *state);
 static int parse_cmdline(int argc, const char **argv, OffGrid *state);
 static void display_valid_parameters(const char *app_name);
+static int wait_for_next_frame(OffGrid *state, int *frame);
+static void rename_file(OffGrid *state,
+                        FILE *output_file,
+                        const char *final_filename,
+                        const char *use_filename,
+                        int frame);
+MMAL_STATUS_T create_filenames(char** finalName,
+                               char** tempName,
+                               char * pattern,
+                               int frame);
 
 /** Structure containing all state information for the current run
  */
@@ -146,6 +156,76 @@ public:
 
        // Set initial GL preview state
        raspitex_set_defaults(&raspitex_state);
+   }
+
+   int loop() {
+       int frame, keep_looping = 1;
+       FILE *output_file = NULL;
+       char *use_filename = NULL;      // Temporary filename while image being written
+       char *final_filename = NULL;    // Name that file gets once writing complete
+
+       if (verbose)
+           fprintf(stderr, "Starting component connection stage\n");
+
+       /* If GL preview is requested then start the GL threads */
+       if (raspitex_start(&raspitex_state) != 0)
+           return -1;
+
+       frame = 0;
+
+       while (keep_looping) {
+           keep_looping = wait_for_next_frame(this, &frame);
+
+           // Open the file
+           if (filename) {
+               if (filename[0] == '-') {
+                   output_file = stdout;
+
+                   // Ensure we don't upset the output stream with diagnostics/info
+                   verbose = 0;
+
+               } else {
+                   vcos_assert(use_filename == NULL && final_filename == NULL);
+                   MMAL_STATUS_T status = create_filenames(&final_filename, &use_filename, filename, frame);
+                   if (status != MMAL_SUCCESS) {
+                       vcos_log_error("Unable to create filenames");
+                       return -1;
+                   }
+
+                   if (verbose)
+                       fprintf(stderr, "Opening output file %s\n", final_filename);
+                   // Technically it is opening the temp~ filename which will be ranamed to the final filename
+
+                   output_file = fopen(use_filename, "wb");
+
+                   if (!output_file) {
+                       // Notify user, carry on but discarding encoded output buffers
+                       vcos_log_error("%s: Error opening output file: %s\nNo output file will be generated\n", __func__, use_filename);
+                   }
+               }
+           }
+
+           // We only capture if a filename was specified and it opened
+           if (output_file) {
+               /* Save the next GL framebuffer as the next camera still */
+               int rc = raspitex_capture(&raspitex_state, output_file);
+               if (rc != 0)
+                   vcos_log_error("Failed to capture GL preview");
+               rename_file(this, output_file, final_filename, use_filename, frame);
+           }
+
+           if (use_filename) {
+               free(use_filename);
+               use_filename = NULL;
+           }
+
+           if (final_filename) {
+               free(final_filename);
+               final_filename = NULL;
+           }
+       }
+
+       return 0;
    }
 
    ~OffGrid() {
@@ -757,75 +837,7 @@ int main(int argc, const char **argv)
 
    state.init(argc, argv);
 
-   {
-      int frame, keep_looping = 1;
-      FILE *output_file = NULL;
-      char *use_filename = NULL;      // Temporary filename while image being written
-      char *final_filename = NULL;    // Name that file gets once writing complete
-
-      if (state.verbose)
-          fprintf(stderr, "Starting component connection stage\n");
-
-      /* If GL preview is requested then start the GL threads */
-      if (raspitex_start(&state.raspitex_state) != 0)
-          return -1;
-
-      frame = 0;
-
-      while (keep_looping) {
-          keep_looping = wait_for_next_frame(&state, &frame);
-
-          // Open the file
-          if (state.filename) {
-              if (state.filename[0] == '-') {
-                  output_file = stdout;
-
-                  // Ensure we don't upset the output stream with diagnostics/info
-                  state.verbose = 0;
-
-              } else {
-                  vcos_assert(use_filename == NULL && final_filename == NULL);
-                  MMAL_STATUS_T status = create_filenames(&final_filename, &use_filename, state.filename, frame);
-                  if (status != MMAL_SUCCESS) {
-                      vcos_log_error("Unable to create filenames");
-                      return -1;
-                  }
-
-                  if (state.verbose)
-                      fprintf(stderr, "Opening output file %s\n", final_filename);
-                  // Technically it is opening the temp~ filename which will be ranamed to the final filename
-
-                  output_file = fopen(use_filename, "wb");
-
-                  if (!output_file) {
-                      // Notify user, carry on but discarding encoded output buffers
-                      vcos_log_error("%s: Error opening output file: %s\nNo output file will be generated\n", __func__, use_filename);
-                  }
-              }
-          }
-
-          // We only capture if a filename was specified and it opened
-          if (output_file) {
-              /* Save the next GL framebuffer as the next camera still */
-              int rc = raspitex_capture(&state.raspitex_state, output_file);
-              if (rc != 0)
-                  vcos_log_error("Failed to capture GL preview");
-              rename_file(&state, output_file, final_filename, use_filename, frame);
-          }
-
-          if (use_filename) {
-              free(use_filename);
-              use_filename = NULL;
-          }
-
-          if (final_filename) {
-              free(final_filename);
-              final_filename = NULL;
-          }
-      } // end for (frame)
-   }
-
-   return 0;
+   return state.loop();
 }
 
 
