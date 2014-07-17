@@ -81,6 +81,28 @@ public:
 
    RASPITEX_STATE raspitex_state; /// GL renderer state and parameters
 
+   void set_defaults() {
+       width = 2592;
+       height = 1944;
+       quality = 85;
+       wantRAW = 0;
+       filename = NULL;
+       linkname = NULL;
+       verbose = 0;
+       camera_component = NULL;
+       preview_connection = NULL;
+       frameNextMethod = FRAME_NEXT_KEYPRESS;
+
+       // Setup preview window defaults
+       raspipreview_set_defaults(&preview_parameters);
+
+       // Set up the camera_parameters to default
+       raspicamcontrol_set_defaults(&camera_parameters);
+
+       // Set initial GL preview state
+       raspitex_set_defaults(&raspitex_state);
+   }
+
    ~OffGrid() {
        if (verbose)
            fprintf(stderr, "Closing down\n");
@@ -146,40 +168,6 @@ static COMMAND_LIST cmdline_commands[] =
 };
 
 static int cmdline_commands_size = sizeof(cmdline_commands) / sizeof(cmdline_commands[0]);
-
-/**
- * Assign a default set of parameters to the state passed in
- *
- * @param state Pointer to state structure to assign defaults to
- */
-static void default_status(OffGrid *state)
-{
-   if (!state)
-   {
-      vcos_assert(0);
-      return;
-   }
-
-   state->width = 2592;
-   state->height = 1944;
-   state->quality = 85;
-   state->wantRAW = 0;
-   state->filename = NULL;
-   state->linkname = NULL;
-   state->verbose = 0;
-   state->camera_component = NULL;
-   state->preview_connection = NULL;
-   state->frameNextMethod = FRAME_NEXT_KEYPRESS;
-
-   // Setup preview window defaults
-   raspipreview_set_defaults(&state->preview_parameters);
-
-   // Set up the camera_parameters to default
-   raspicamcontrol_set_defaults(&state->camera_parameters);
-
-   // Set initial GL preview state
-   raspitex_set_defaults(&state->raspitex_state);
-}
 
 /**
  * Parse the incoming command line and put resulting parameters in to the state
@@ -737,7 +725,7 @@ int main(int argc, const char **argv)
    // Disable USR1 for the moment - may be reenabled if go in to signal capture mode
    signal(SIGUSR1, SIG_IGN);
 
-   default_status(&state);
+   state.set_defaults();
 
    // Do we have any parameters
    if (argc == 1)
