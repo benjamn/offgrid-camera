@@ -151,11 +151,6 @@ public:
        raspitex_restart(&raspitex_state);
    }
 
-   void capture() {
-       // TODO
-       // int rc = raspitex_capture(&raspitex_state, output_file);
-   }
-
    ~OffGrid() {
        if (verbose)
            fprintf(stderr, "Closing down\n");
@@ -561,8 +556,62 @@ using namespace v8;
 
 static OffGrid *sState = NULL;
 
-Handle<Value> Test(const Arguments& args) {
-    return String::New("oyez");
+static Handle<Value>
+CaptureHandler(const Arguments& args) {
+    Local<Object> data = args.Data()->ToObject();
+    uint8_t *buffer = (uint8_t*) data->GetPointerFromInternalField(0);
+    size_t size = data->Get(String::New("size"))->Uint32Value();
+    size_t w = sState->raspitex_state.width;
+    size_t h = sState->raspitex_state.height;
+    size_t x = args[0]->Uint32Value();
+    size_t y = args[0]->Uint32Value();
+    fprintf(stderr, "w,h in CaptureHandler: %d,%d\n", w, h);
+    fprintf(stderr, "x,y in CaptureHandler: %d,%d\n", x, y);
+    fprintf(stderr, "size in CaptureHandler: %d\n", size);
+    fprintf(stderr, "buffer in CaptureHandler: %p\n", buffer);
+
+    Local<Array> rgba = Array::New(4);
+    uint8_t *offset = buffer + ((y * w + x) << 2);
+    rgba->Set(0, Integer::New(offset[0]));
+    rgba->Set(1, Integer::New(offset[1]));
+    rgba->Set(2, Integer::New(offset[2]));
+    rgba->Set(3, Integer::New(offset[3]));
+    return rgba;
+}
+
+Handle<Value> Capture(const Arguments& args) {
+    if (args[0]->IsFunction()) {
+        size_t size = 0;
+        uint8_t *buffer = raspitex_capture_to_buffer(&sState->raspitex_state, &size);
+
+        Local<Object> data = Object::New();
+        data->Set(String::New("size"), Integer::New(size));
+        data->SetPointerInInternalField(0, buffer);
+
+        Local<FunctionTemplate> f =
+            FunctionTemplate::New(CaptureHandler, data);
+
+        Handle<Object> receiver = (args.Length() > 1)
+            ? args[1]->ToObject()
+            : args.This();
+
+        Handle<Value> argv[] = {
+            f->GetFunction(),
+            Integer::New(sState->raspitex_state.width),
+            Integer::New(sState->raspitex_state.height),
+        };
+
+        args[0]->ToObject()->CallAsFunction(receiver, 3, argv);
+
+        free(buffer);
+    }
+
+    return args.This();
+}
+
+Handle<Value> Switch(const Arguments& args) {
+    sState->switch_scene();
+    return args.This();
 }
 
 static void cleanup(void *arg) {
@@ -571,10 +620,14 @@ static void cleanup(void *arg) {
 
 void init(Handle<Object> target) {
     sState = new OffGrid();
+
     const char *argv[] = { "offgrid", "--verbose" };
     sState->init(2, argv);
+
     node::AtExit(cleanup, sState);
-    NODE_SET_METHOD(target, "test", Test);
+
+    NODE_SET_METHOD(target, "capture", Capture);
+    NODE_SET_METHOD(target, "switch", Switch);
 }
 
 NODE_MODULE(offgrid, init);
