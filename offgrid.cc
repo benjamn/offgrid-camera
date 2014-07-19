@@ -64,124 +64,124 @@ static void display_valid_parameters(const char *app_name);
  */
 class OffGrid {
 public:
-   int width;                          /// Requested width of image
-   int height;                         /// requested height of image
-   int verbose;                        /// !0 if want detailed run information
+    int width;                          /// Requested width of image
+    int height;                         /// requested height of image
+    int verbose;                        /// !0 if want detailed run information
 
-   RASPIPREVIEW_PARAMETERS preview_parameters;    /// Preview setup parameters
-   RASPICAM_CAMERA_PARAMETERS camera_parameters; /// Camera setup parameters
+    RASPIPREVIEW_PARAMETERS preview_parameters;    /// Preview setup parameters
+    RASPICAM_CAMERA_PARAMETERS camera_parameters; /// Camera setup parameters
 
-   MMAL_COMPONENT_T *camera_component;    /// Pointer to the camera component
-   MMAL_COMPONENT_T *null_sink_component; /// Pointer to the null sink component
-   MMAL_CONNECTION_T *preview_connection; /// Pointer to the connection from camera to preview
+    MMAL_COMPONENT_T *camera_component;    /// Pointer to the camera component
+    MMAL_COMPONENT_T *null_sink_component; /// Pointer to the null sink component
+    MMAL_CONNECTION_T *preview_connection; /// Pointer to the connection from camera to preview
 
-   RASPITEX_STATE raspitex_state; /// GL renderer state and parameters
+    RASPITEX_STATE raspitex_state; /// GL renderer state and parameters
 
-   void init(int argc, const char *argv[]) {
-       bcm_host_init();
+    void init(int argc, const char *argv[]) {
+        bcm_host_init();
 
-       // Register our application with the logging system
-       vcos_log_register("OffGrid", VCOS_LOG_CATEGORY);
+        // Register our application with the logging system
+        vcos_log_register("OffGrid", VCOS_LOG_CATEGORY);
 
-       signal(SIGINT, signal_handler);
+        signal(SIGINT, signal_handler);
 
-       // Disable USR1 for the moment - may be reenabled if go in to signal capture mode
-       signal(SIGUSR1, SIG_IGN);
+        // Disable USR1 for the moment - may be reenabled if go in to signal capture mode
+        signal(SIGUSR1, SIG_IGN);
 
-       set_defaults();
+        set_defaults();
 
-       // Do we have any parameters
-       if (argc == 1) {
-           fprintf(stderr, "\%s Camera App %s\n\n", basename(argv[0]), VERSION_STRING);
-           display_valid_parameters(basename(argv[0]));
-           exit(EX_USAGE);
-       }
+        // Do we have any parameters
+        if (argc == 1) {
+            fprintf(stderr, "\%s Camera App %s\n\n", basename(argv[0]), VERSION_STRING);
+            display_valid_parameters(basename(argv[0]));
+            exit(EX_USAGE);
+        }
 
-       // Parse the command line and put options in to our status structure
-       if (parse_cmdline(argc, argv, this)) {
-           exit(EX_USAGE);
-       }
+        // Parse the command line and put options in to our status structure
+        if (parse_cmdline(argc, argv, this)) {
+            exit(EX_USAGE);
+        }
 
-       if (verbose) {
-           fprintf(stderr, "\n%s Camera App %s\n\n", basename(argv[0]), VERSION_STRING);
-       }
+        if (verbose) {
+            fprintf(stderr, "\n%s Camera App %s\n\n", basename(argv[0]), VERSION_STRING);
+        }
 
-       raspitex_init(&raspitex_state);
+        raspitex_init(&raspitex_state);
 
-       // OK, we have a nice set of parameters. Now set up our components
-       // We have three components. Camera, Preview and encoder.
-       // Camera and encoder are different in stills/video, but preview
-       // is the same so handed off to a separate module
+        // OK, we have a nice set of parameters. Now set up our components
+        // We have three components. Camera, Preview and encoder.
+        // Camera and encoder are different in stills/video, but preview
+        // is the same so handed off to a separate module
 
-       if (create_camera_component(this) != MMAL_SUCCESS) {
-           vcos_log_error("%s: Failed to create camera component", __func__);
-       }
+        if (create_camera_component(this) != MMAL_SUCCESS) {
+            vcos_log_error("%s: Failed to create camera component", __func__);
+        }
 
-       /* If GL preview is requested then start the GL threads */
-       if (raspitex_start(&raspitex_state) != 0) {
-           fprintf(stderr, "failed to start raspitex\n");
-           exit(-1);
-       }
-   }
+        /* If GL preview is requested then start the GL threads */
+        if (raspitex_start(&raspitex_state) != 0) {
+            fprintf(stderr, "failed to start raspitex\n");
+            exit(-1);
+        }
+    }
 
-   void set_defaults() {
-       width = 2592;
-       height = 1944;
-       verbose = 0;
-       camera_component = NULL;
-       preview_connection = NULL;
+    void set_defaults() {
+        width = 2592;
+        height = 1944;
+        verbose = 0;
+        camera_component = NULL;
+        preview_connection = NULL;
 
-       // Setup preview window defaults
-       raspipreview_set_defaults(&preview_parameters);
+        // Setup preview window defaults
+        raspipreview_set_defaults(&preview_parameters);
 
-       // Set up the camera_parameters to default
-       raspicamcontrol_set_defaults(&camera_parameters);
+        // Set up the camera_parameters to default
+        raspicamcontrol_set_defaults(&camera_parameters);
 
-       // Set initial GL preview state
-       raspitex_set_defaults(&raspitex_state);
-   }
+        // Set initial GL preview state
+        raspitex_set_defaults(&raspitex_state);
+    }
 
-   void switch_scene() {
-       if (raspitex_state.scene_id != RASPITEX_SCENE_ANIMATION) {
-           raspitex_state.scene_id = RASPITEX_SCENE_ANIMATION;
-       } else {
-           raspitex_state.scene_id = RASPITEX_SCENE_CALIBRATION;
-       }
+    void switch_scene() {
+        if (raspitex_state.scene_id != RASPITEX_SCENE_SHOWTIME) {
+            raspitex_state.scene_id = RASPITEX_SCENE_SHOWTIME;
+        } else {
+            raspitex_state.scene_id = RASPITEX_SCENE_CALIBRATION;
+        }
 
-       raspitex_restart(&raspitex_state);
-   }
+        raspitex_restart(&raspitex_state);
+    }
 
-   ~OffGrid() {
-       if (verbose)
-           fprintf(stderr, "Closing down\n");
+    ~OffGrid() {
+        if (verbose)
+            fprintf(stderr, "Closing down\n");
 
-       raspitex_stop(&raspitex_state);
-       raspitex_destroy(&raspitex_state);
+        raspitex_stop(&raspitex_state);
+        raspitex_destroy(&raspitex_state);
 
-       // Disable ports that are not handled by connections.
-       MMAL_PORT_T *port = camera_component->output[MMAL_CAMERA_VIDEO_PORT];
-       if (port && port->is_enabled)
-           mmal_port_disable(port);
+        // Disable ports that are not handled by connections.
+        MMAL_PORT_T *port = camera_component->output[MMAL_CAMERA_VIDEO_PORT];
+        if (port && port->is_enabled)
+            mmal_port_disable(port);
 
-       if (preview_connection)
-           mmal_connection_destroy(preview_connection);
+        if (preview_connection)
+            mmal_connection_destroy(preview_connection);
 
-       if (preview_parameters.preview_component)
-           mmal_component_disable(preview_parameters.preview_component);
+        if (preview_parameters.preview_component)
+            mmal_component_disable(preview_parameters.preview_component);
 
-       if (camera_component)
-           mmal_component_disable(camera_component);
+        if (camera_component)
+            mmal_component_disable(camera_component);
 
-       raspipreview_destroy(&preview_parameters);
+        raspipreview_destroy(&preview_parameters);
 
-       if (camera_component) {
-           mmal_component_destroy(camera_component);
-           camera_component = NULL;
-       }
+        if (camera_component) {
+            mmal_component_destroy(camera_component);
+            camera_component = NULL;
+        }
 
-       if (verbose)
-           fprintf(stderr, "Close down completed, all components disconnected, disabled and destroyed\n\n");
-   }
+        if (verbose)
+            fprintf(stderr, "Close down completed, all components disconnected, disabled and destroyed\n\n");
+    }
 };
 
 /// Comamnd ID's and Structure defining our command line options
