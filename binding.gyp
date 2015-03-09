@@ -10,7 +10,6 @@
             "raspicam/RaspiTexUtil.c",
             "raspicam/tga.c",
             "raspicam/gl_scenes/calibration.c",
-            "raspicam/gl_scenes/animation.c",
             "raspicam/gl_scenes/showtime.c",
             "raspicam/gl_scenes/sobel.c",
         ],
