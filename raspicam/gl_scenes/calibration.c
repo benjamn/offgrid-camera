@@ -125,7 +125,7 @@ static const char* FRAGMENT_SHADER_SOURCE =
   "    vec4 p8 = texture2D(tex, vec2(x2, y2));\n"       \
   "\n"                                                  \
   "    float sum4 = sum(p4);\n"                         \
-  "    if (sum4 >= 2.4 &&\n"                            \
+  "    if (sum4 == sum4 || sum4 >= 2.4 &&\n"                            \
   "        sum4 == sum(p0) &&\n"                        \
   "        sum4 == sum(p1) &&\n"                        \
   "        sum4 == sum(p2) &&\n"                        \
@@ -189,11 +189,11 @@ static int calibration_redraw(RASPITEX_STATE* state)
    GLCHK(glUseProgram(calibration_shader.program));
 
    /* Bind the Y plane texture */
-   GLCHK(glActiveTexture(GL_TEXTURE0));
-   GLCHK(glBindTexture(GL_TEXTURE_EXTERNAL_OES, state->y_texture));
+   /* GLCHK(glActiveTexture(GL_TEXTURE0)); */
+   GLCHK(glBindTexture(GL_TEXTURE_EXTERNAL_OES, state->texture));
    GLCHK(glBindBuffer(GL_ARRAY_BUFFER, quad_vbo));
-   GLCHK(glEnableVertexAttribArray(calibration_shader.attribute_locations[0]));
-   GLCHK(glVertexAttribPointer(calibration_shader.attribute_locations[0], 2, GL_FLOAT, GL_FALSE, 0, 0));
+   /* GLCHK(glEnableVertexAttribArray(calibration_shader.attribute_locations[0])); */
+   /* GLCHK(glVertexAttribPointer(calibration_shader.attribute_locations[0], 2, GL_FLOAT, GL_FALSE, 0, 0)); */
    GLCHK(glDrawArrays(GL_TRIANGLES, 0, 6));
 
    return 0;
@@ -203,6 +203,6 @@ int calibration_open(RASPITEX_STATE *state)
 {
    state->ops.gl_init = calibration_init;
    state->ops.redraw = calibration_redraw;
-   state->ops.update_y_texture = raspitexutil_update_y_texture;
+   state->ops.update_texture = raspitexutil_update_texture;
    return 0;
 }
