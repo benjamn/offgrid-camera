@@ -77,7 +77,8 @@ public:
 
     RASPITEX_STATE raspitex_state; /// GL renderer state and parameters
 
-    void init(int argc, const char *argv[]) {
+    OffGrid() : tareBuffer(NULL)
+              , tareSize(0) {
         bcm_host_init();
 
         // Register our application with the logging system
@@ -89,7 +90,9 @@ public:
         signal(SIGUSR1, SIG_IGN);
 
         set_defaults();
+    }
 
+    void init(int argc, const char *argv[]) {
         // Do we have any parameters
         if (argc == 1) {
             fprintf(stderr, "\%s Camera App %s\n\n", basename(argv[0]), VERSION_STRING);
@@ -141,6 +144,62 @@ public:
         raspitex_set_defaults(&raspitex_state);
     }
 
+    void tare() {
+        free(tareBuffer);
+        tareBuffer = raspitex_capture_to_buffer(&raspitex_state, &tareSize);
+    }
+
+    bool find(uint32_t &xResult, uint32_t &yResult) {
+        if (!tareBuffer) {
+            return false;
+        }
+
+        size_t size = 0;
+        uint8_t *currBuffer = raspitex_capture_to_buffer(&raspitex_state, &size);
+
+        size_t w = raspitex_state.width;
+        size_t h = raspitex_state.height;
+
+        uint8_t stride = 2;
+        uint32_t threshold = 120 * 3;
+        int margin = 100;
+
+        uint32_t count = 0;
+        uint32_t xSum = 0;
+        uint32_t ySum = 0;
+        uint32_t denominator = 0;
+
+        for (size_t x = 0; x < w; x += stride) {
+            for (size_t y = 0; y < h; y += stride) {
+                size_t offset = (y * w + x) << 2;
+                uint32_t tareSum =
+                    tareBuffer[offset + 0] +
+                    tareBuffer[offset + 1] +
+                    tareBuffer[offset + 2];
+                uint32_t currSum =
+                    currBuffer[offset + 0] +
+                    currBuffer[offset + 1] +
+                    currBuffer[offset + 2];
+                int diff = currSum - tareSum;
+
+                if (currSum > threshold && diff > margin) {
+                    xSum += diff * x;
+                    ySum += diff * y;
+                    denominator += diff;
+                    ++count;
+                }
+            }
+        }
+
+        if (count > 5) {
+            xResult = xSum / denominator;
+            yResult = ySum / denominator;
+            return true;
+        }
+
+        return false;
+    }
+
     void switch_scene() {
         if (raspitex_state.scene_id != RASPITEX_SCENE_SHOWTIME) {
             raspitex_state.scene_id = RASPITEX_SCENE_SHOWTIME;
@@ -182,6 +241,10 @@ public:
         if (verbose)
             fprintf(stderr, "Close down completed, all components disconnected, disabled and destroyed\n\n");
     }
+
+private:
+    uint8_t *tareBuffer;
+    size_t tareSize;
 };
 
 /// Comamnd ID's and Structure defining our command line options
@@ -584,6 +647,24 @@ CaptureHandler(const Arguments& args) {
     return rgba;
 }
 
+Handle<Value> Tare(const Arguments& args) {
+    sState->tare();
+    return args.This();
+}
+
+Handle<Value> Find(const Arguments& args) {
+    uint32_t x, y;
+
+    if (sState->find(x, y)) {
+        Handle<Array> xy = Array::New(2);
+        xy->Set(0, Integer::New(x));
+        xy->Set(1, Integer::New(y));
+        return xy;
+    }
+
+    return Handle<Value>();
+}
+
 Handle<Value> Capture(const Arguments& args) {
     if (args[0]->IsFunction()) {
         size_t size = 0;
@@ -631,6 +712,8 @@ void init(Handle<Object> target) {
 
     node::AtExit(cleanup, sState);
 
+    NODE_SET_METHOD(target, "tare", Tare);
+    NODE_SET_METHOD(target, "find", Find);
     NODE_SET_METHOD(target, "capture", Capture);
     NODE_SET_METHOD(target, "switch", Switch);
 }
