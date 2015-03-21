@@ -44,6 +44,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "interface/mmal/util/mmal_util_params.h"
 #include "tga.h"
 
+#include "gl_scenes/square.h"
 #include "gl_scenes/sobel.h"
 #include "gl_scenes/animation.h"
 #include "gl_scenes/calibration.h"
@@ -96,7 +97,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 static COMMAND_LIST cmdline_commands[] =
 {
-   { CommandGLScene, "-glscene",  "gs",  "GL scene showtime,sobel,calibration,animation", 1 },
+   { CommandGLScene, "-glscene",  "gs",  "GL scene square,showtime,sobel,calibration,animation", 1 },
    { CommandGLWin,   "-glwin",    "gw",  "GL window settings <'x,y,w,h'>", 1 },
 };
 
@@ -148,6 +149,8 @@ int raspitex_parse_cmdline(RASPITEX_STATE *state,
 
       case CommandGLScene: // Selects the GL scene
       {
+         if (strcmp(arg2, "square") == 0)
+            state->scene_id = RASPITEX_SCENE_SQUARE;
          if (strcmp(arg2, "showtime") == 0)
             state->scene_id = RASPITEX_SCENE_SHOWTIME;
          else if (strcmp(arg2, "teapot") == 0)
@@ -544,6 +547,8 @@ static int open_scene(RASPITEX_STATE *state) {
   switch (state->scene_id) {
   case RASPITEX_SCENE_SHOWTIME:
     return showtime_open(state);
+  case RASPITEX_SCENE_SQUARE:
+    return square_open(state);
   case RASPITEX_SCENE_SOBEL:
     return sobel_open(state);
   case RASPITEX_SCENE_CALIBRATION:
@@ -642,7 +647,7 @@ void raspitex_set_defaults(RASPITEX_STATE *state)
    state->opacity = 255;
    state->width = DEFAULT_WIDTH;
    state->height = DEFAULT_HEIGHT;
-   state->scene_id = RASPITEX_SCENE_CALIBRATION;
+   state->scene_id = RASPITEX_SCENE_SQUARE;
 
    state->ops.create_native_window = raspitexutil_create_native_window;
    state->ops.gl_init = raspitexutil_gl_init_1_0;

@@ -64,18 +64,12 @@ static const GLfloat tex_coords[] =
    1, 1, 1, 0, 0, 0
 };
 
-static GLfloat angle;
-static uint32_t anim_step;
-
 static int square_init(RASPITEX_STATE *state)
 {
    int rc = raspitexutil_gl_init_1_0(state);
 
    if (rc != 0)
       goto end;
-
-   angle = 0.0f;
-   anim_step = 0;
 
    glClearColor(0, 0, 0, 0);
    glClearDepthf(1);
@@ -88,11 +82,6 @@ end:
 
 static int square_update_model(RASPITEX_STATE *state)
 {
-   int frames_per_rev = 30 * 15;
-   (void) state;
-   angle = (anim_step * 360) / (GLfloat) frames_per_rev;
-   anim_step = (anim_step + 1) % frames_per_rev;
-
    return 0;
 }
 
@@ -101,7 +90,6 @@ static int square_redraw(RASPITEX_STATE *state)
    /* Bind the OES texture which is used to render the camera preview */
    GLCHK(glBindTexture(GL_TEXTURE_EXTERNAL_OES, state->texture));
    glLoadIdentity();
-   glRotatef(angle, 0.0, 0.0, 1.0);
    glEnableClientState(GL_VERTEX_ARRAY);
    glVertexPointer(3, GL_FLOAT, 0, vertices);
    glDisableClientState(GL_COLOR_ARRAY);

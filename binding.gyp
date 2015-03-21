@@ -12,6 +12,7 @@
             "raspicam/gl_scenes/calibration.c",
             "raspicam/gl_scenes/showtime.c",
             "raspicam/gl_scenes/sobel.c",
+            "raspicam/gl_scenes/square.c",
         ],
         "defines": [],
         "include_dirs": [
