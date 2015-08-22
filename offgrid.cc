@@ -8,6 +8,9 @@
 #include <sysexits.h>
 #include <signal.h>
 #include <math.h>
+#include <iostream>
+#include <string>
+#include <algorithm>
 
 #include <node.h>
 #include <v8.h>
@@ -24,10 +27,12 @@
 #include "interface/mmal/util/mmal_connection.h"
 
 extern "C" {
-#include "RaspiCamControl.h"
-#include "RaspiPreview.h"
-#include "RaspiCLI.h"
-#include "RaspiTex.h"
+#include "raspicam/RaspiCamControl.h"
+#include "raspicam/RaspiPreview.h"
+#include "raspicam/RaspiCLI.h"
+#include "raspicam/RaspiTex.h"
+#include "raspicam/RaspiTexUtil.h"
+#include "raspicam/tga.h"
 }
 
 #include <semaphore.h>
@@ -51,6 +56,7 @@ extern "C" {
 /// Video render needs at least 2 buffers.
 #define VIDEO_OUTPUT_BUFFERS_NUM 3
 
+using namespace v8;
 
 class OffGrid;
 
@@ -64,8 +70,8 @@ static void display_valid_parameters(const char *app_name);
  */
 class OffGrid {
 public:
-    int width;                          /// Requested width of image
-    int height;                         /// requested height of image
+    uint32_t width;
+    uint32_t height;
     int verbose;                        /// !0 if want detailed run information
 
     RASPIPREVIEW_PARAMETERS preview_parameters;    /// Preview setup parameters
@@ -78,7 +84,10 @@ public:
     RASPITEX_STATE raspitex_state; /// GL renderer state and parameters
 
     OffGrid() : tareBuffer(NULL)
-              , tareSize(0) {
+              , tareSize(0)
+              , xyData(NULL)
+              , xyCount(0)
+    {
         bcm_host_init();
 
         // Register our application with the logging system
@@ -120,16 +129,38 @@ public:
             vcos_log_error("%s: Failed to create camera component", __func__);
         }
 
+        if (raspicamcontrol_set_awb_mode(camera_component,
+                                         MMAL_PARAM_AWBMODE_TUNGSTEN)
+            != MMAL_SUCCESS) {
+            fprintf(stderr, "failed to set white balance\n");
+            exit(-1);
+        }
+
+        if (raspicamcontrol_set_exposure_mode(camera_component,
+                                              MMAL_PARAM_EXPOSUREMODE_AUTO)
+            != MMAL_SUCCESS) {
+            fprintf(stderr, "failed to set exposure\n");
+            exit(-1);
+        }
+
+        if (raspicamcontrol_set_ISO(camera_component, 400)
+            != MMAL_SUCCESS) {
+            fprintf(stderr, "failed to set ISO\n");
+            exit(-1);
+        }
+
         /* If GL preview is requested then start the GL threads */
         if (raspitex_start(&raspitex_state) != 0) {
             fprintf(stderr, "failed to start raspitex\n");
             exit(-1);
         }
+
+        width = raspitex_state.width;
+        height = raspitex_state.height;
+        setWindow(0, 0, width, height);
     }
 
     void set_defaults() {
-        width = 2592;
-        height = 1944;
         verbose = 0;
         camera_component = NULL;
         preview_connection = NULL;
@@ -149,53 +180,174 @@ public:
         tareBuffer = raspitex_capture_to_buffer(&raspitex_state, &tareSize);
     }
 
-    bool find(uint32_t &xResult, uint32_t &yResult) {
+    void setWindow(uint32_t x1, uint32_t y1,
+                   uint32_t x2, uint32_t y2) {
+        uint32_t zero = 0;
+        uint32_t w = raspitex_state.width;
+        uint32_t h = raspitex_state.height;
+
+        winX1 = std::min(std::max(zero, x1), w);
+        winY1 = std::min(std::max(zero, y1), h);
+        winX2 = std::min(std::max(winX1, x2), w);
+        winY2 = std::min(std::max(winY1, y2), h);
+    }
+
+    bool setData(Isolate *isolate, const Handle<Array>& input) {
+        delete[] xyData;
+        xyCount = input->Length();
+        xyData = new Datum[xyCount];
+        Local<Array> output = Array::New(isolate, xyCount);
+        rgbOutput.Reset(isolate, output);
+
+        uint32_t xMax = 0;
+        uint32_t yMax = 0;
+
+        for (size_t i = 0; i < xyCount; ++i) {
+            Handle<Array> pair = Handle<Array>::Cast(input->Get(i));
+
+            uint32_t x = pair->Get(0)->Uint32Value();
+            if (x > xMax) {
+                xMax = x;
+            }
+
+            uint32_t y = pair->Get(1)->Uint32Value();
+            if (y > yMax) {
+                yMax = y;
+            }
+
+            xyData[i].x = x;
+            xyData[i].y = y;
+        }
+
+        uint32_t xAdjust = (raspitex_state.width - xMax) >> 1;
+        uint32_t yAdjust = (raspitex_state.height - yMax) >> 1;
+
+        for (size_t i = 0; i < xyCount; ++i) {
+            xyData[i].x += xAdjust;
+            xyData[i].y += yAdjust;
+
+            output->Set(i, Array::New(isolate, 3));
+        }
+
+        return true;
+    }
+
+    Handle<Array> sample(Isolate *isolate) {
+        if (xyData == NULL) {
+            return Array::New(isolate, 0);
+        }
+
+        Handle<Array> output = Handle<Array>::New(isolate, rgbOutput);
+
+        size_t size;
+        uint8_t *buffer = raspitex_capture_to_buffer(&raspitex_state, &size);
+
+        for (size_t i = 0; i < xyCount; ++i) {
+            uint32_t x = xyData[i].x;
+            uint32_t y = xyData[i].y;
+
+            uint8_t denominator = 0;
+
+            uint32_t rSum = 0;
+            uint32_t gSum = 0;
+            uint32_t bSum = 0;
+
+            for (uint32_t a = x - 1; a <= x + 1; ++a) {
+                for (uint32_t b = y - 1; b <= y + 1; ++b) {
+                    size_t offset = (y * raspitex_state.width + x) << 2;
+
+                    uint8_t coefficient = 1;
+                    if (a == x && b == y) {
+                        coefficient = 4;
+                    }
+
+                    rSum += coefficient * buffer[offset + 0];
+                    gSum += coefficient * buffer[offset + 1];
+                    bSum += coefficient * buffer[offset + 2];
+
+                    denominator += coefficient;
+                }
+            }
+
+            Local<Array> rgb = Local<Array>::Cast(output->Get(i));
+            rgb->Set(0, Number::New(isolate, rSum / denominator));
+            rgb->Set(1, Number::New(isolate, gSum / denominator));
+            rgb->Set(2, Number::New(isolate, bSum / denominator));
+        }
+
+        free(buffer);
+
+        return output;
+    }
+
+    bool find(double rWeight, double gWeight, double bWeight,
+              double &xResult, double &yResult) {
         if (!tareBuffer) {
             return false;
         }
 
         size_t size = 0;
         uint8_t *currBuffer = raspitex_capture_to_buffer(&raspitex_state, &size);
-
-        size_t w = raspitex_state.width;
-        size_t h = raspitex_state.height;
-
-        uint8_t stride = 2;
-        uint32_t threshold = 120 * 3;
-        int margin = 100;
-
         uint32_t count = 0;
-        uint32_t xSum = 0;
-        uint32_t ySum = 0;
-        uint32_t denominator = 0;
+        double xSum = 0;
+        double ySum = 0;
+        double denominator = 0;
 
-        for (size_t x = 0; x < w; x += stride) {
-            for (size_t y = 0; y < h; y += stride) {
-                size_t offset = (y * w + x) << 2;
-                uint32_t tareSum =
-                    tareBuffer[offset + 0] +
-                    tareBuffer[offset + 1] +
-                    tareBuffer[offset + 2];
-                uint32_t currSum =
-                    currBuffer[offset + 0] +
-                    currBuffer[offset + 1] +
-                    currBuffer[offset + 2];
-                int diff = currSum - tareSum;
+        double threshold = 0.5 *
+            (255 * rWeight +
+             255 * gWeight +
+             255 * bWeight);
 
-                if (currSum > threshold && diff > margin) {
-                    xSum += diff * x;
-                    ySum += diff * y;
-                    denominator += diff;
+        // fprintf(stderr, "threshold: %g\n", threshold);
+        // fprintf(stderr, "x1,y1,x2,y2,w,h: %d,%d,%d,%d,%d,%d\n",
+        //         winX1, winY1, winX2, winY2,
+        //         raspitex_state.width,
+        //         raspitex_state.height);
+
+        for (uint32_t x = winX1; x < winX2; ++x) {
+            for (uint32_t y = winY1; y < winY2; ++y) {
+                size_t offset = (y * raspitex_state.width + x) << 2;
+
+                double rDelta = rWeight *
+                    (currBuffer[offset + 0] -
+                     tareBuffer[offset + 0]);
+
+                double gDelta = gWeight *
+                    (currBuffer[offset + 1] -
+                     tareBuffer[offset + 1]);
+
+                double bDelta = bWeight *
+                    (currBuffer[offset + 2] -
+                     tareBuffer[offset + 2]);
+
+                double sum = rDelta + gDelta + bDelta;
+
+                if (sum > threshold) {
+                    xSum += sum * x;
+                    ySum += sum * y;
+                    denominator += sum;
+                    // fprintf(stderr, "%d %d %g\n", x, y, sum);
                     ++count;
                 }
             }
         }
 
+        free(tareBuffer);
+        tareBuffer = currBuffer;
+
+        fprintf(stderr, "count: %d\n", count);
+
         if (count > 5) {
             xResult = xSum / denominator;
             yResult = ySum / denominator;
+            // setWindow(std::floor(xResult) - 100,
+            //           std::floor(yResult) - 100,
+            //           std::floor(xResult) + 100,
+            //           std::floor(yResult) + 100);
             return true;
         }
+
+        // setWindow(0, 0, raspitex_state.width, raspitex_state.height);
 
         return false;
     }
@@ -208,6 +360,18 @@ public:
         }
 
         raspitex_restart(&raspitex_state);
+    }
+
+    void save(const std::string& filename) {
+        if (!tareBuffer) {
+            return;
+        }
+
+        raspitexutil_brga_to_rgba(tareBuffer, tareSize);
+        FILE* fd = fopen(filename.c_str(), "w+");
+        write_tga(fd, width, height, tareBuffer, tareSize);
+        fflush(fd);
+        fclose(fd);
     }
 
     ~OffGrid() {
@@ -243,8 +407,16 @@ public:
     }
 
 private:
+    uint32_t winX1, winX2, winY1, winY2;
     uint8_t *tareBuffer;
     size_t tareSize;
+
+    typedef struct {
+        uint32_t x, y;
+    } Datum;
+    Datum *xyData;
+    size_t xyCount;
+    Persistent<Array> rgbOutput;
 };
 
 /// Comamnd ID's and Structure defining our command line options
@@ -315,18 +487,22 @@ static int parse_cmdline(int argc, const char **argv, OffGrid *state)
          return -1;
 
       case CommandWidth: // Width > 0
-         if (sscanf(argv[i + 1], "%u", &state->width) != 1)
-            valid = 0;
-         else
-            i++;
+         if (sscanf(argv[i + 1], "%u", &state->width) != 1) {
+           fprintf(stderr, "parsed width %d\n", state->width);
+           valid = 0;
+         } else {
+           i++;
+         }
          break;
 
       case CommandHeight: // Height > 0
-         if (sscanf(argv[i + 1], "%u", &state->height) != 1)
-            valid = 0;
-         else
-            i++;
-         break;
+        if (sscanf(argv[i + 1], "%u", &state->height) != 1) {
+          fprintf(stderr, "parsed height %d\n", state->height);
+          valid = 0;
+        } else {
+          i++;
+        }
+        break;
 
       case CommandVerbose: // display lots of data during run
          state->verbose = 1;
@@ -615,107 +791,90 @@ static void signal_handler(int signal_number)
    }
 }
 
-using namespace v8;
-
 static OffGrid *sState = NULL;
-static uint32_t sizeKey = 0;
-static uint32_t buffKey = 1;
 
-static Handle<Value>
-CaptureHandler(const Arguments& args) {
-    Local<Array> data = Array::Cast(*args.Data());
-    uint8_t *buffer = (uint8_t*) data->Get(buffKey)->Uint32Value();
-
-    size_t w = sState->raspitex_state.width;
-    size_t h = sState->raspitex_state.height;
-    size_t x = args[0]->Uint32Value();
-    size_t y = args[1]->Uint32Value();
-    size_t offset = (y * w + x) << 2;
-    size_t size = data->Get(sizeKey)->Uint32Value();
-
-    if (offset >= size) {
-        return Handle<Value>();
-    }
-
-    Handle<Array> rgba = Array::New(4);
-
-    rgba->Set(0, Integer::New(buffer[offset + 0]));
-    rgba->Set(1, Integer::New(buffer[offset + 1]));
-    rgba->Set(2, Integer::New(buffer[offset + 2]));
-    rgba->Set(3, Integer::New(buffer[offset + 3]));
-
-    return rgba;
-}
-
-Handle<Value> Tare(const Arguments& args) {
+static void Tare(const FunctionCallbackInfo<Value>& args) {
     sState->tare();
-    return args.This();
+    args.GetReturnValue().Set(args.This());
 }
 
-Handle<Value> Find(const Arguments& args) {
-    uint32_t x, y;
+static void SetData(const FunctionCallbackInfo<Value>& args) {
+  Isolate *isolate = args.GetIsolate();
+  Handle<Value> arg0 = args[0];
 
-    if (sState->find(x, y)) {
-        Handle<Array> xy = Array::New(2);
-        xy->Set(0, Integer::New(x));
-        xy->Set(1, Integer::New(y));
-        return xy;
+  if (! arg0->IsArray()) {
+      args.GetReturnValue().Set(Boolean::New(isolate, false));
+    return;
+  }
+
+  sState->setData(isolate, Handle<Array>::Cast(arg0));
+
+  args.GetReturnValue().Set(Boolean::New(isolate, true));
+}
+
+static void Sample(const FunctionCallbackInfo<Value>& args) {
+    args.GetReturnValue().Set(sState->sample(args.GetIsolate()));
+}
+
+static void Find(const FunctionCallbackInfo<Value>& args) {
+    double x, y;
+
+    if (sState->find(args[0]->NumberValue(),
+                     args[1]->NumberValue(),
+                     args[2]->NumberValue(),
+                     x, y)) {
+        Isolate *isolate = args.GetIsolate();
+        Handle<Array> xy = Array::New(isolate, 2);
+        xy->Set(0, Number::New(isolate, x));
+        xy->Set(1, Number::New(isolate, y));
+        args.GetReturnValue().Set(xy);
     }
-
-    return Handle<Value>();
 }
 
-Handle<Value> Capture(const Arguments& args) {
-    if (args[0]->IsFunction()) {
-        size_t size = 0;
-        uint8_t *buffer = raspitex_capture_to_buffer(&sState->raspitex_state, &size);
+static void Width(const FunctionCallbackInfo<Value>& args) {
+    args.GetReturnValue().Set(Integer::New(args.GetIsolate(),
+                                           sState->raspitex_state.width));
+}
 
-        Handle<Array> data = Array::New(2);
-        data->Set(sizeKey, Integer::New(size));
-        data->Set(buffKey, Uint32::New((uint32_t)buffer));
+static void Height(const FunctionCallbackInfo<Value>& args) {
+    args.GetReturnValue().Set(Integer::New(args.GetIsolate(),
+                                           sState->raspitex_state.height));
+}
 
-        Handle<FunctionTemplate> f =
-            FunctionTemplate::New(CaptureHandler, data);
-
-        Handle<Object> receiver = (args.Length() > 1)
-            ? args[1]->ToObject()
-            : args.This();
-
-        Handle<Value> argv[] = {
-            f->GetFunction(),
-            Integer::New(sState->raspitex_state.width),
-            Integer::New(sState->raspitex_state.height),
-        };
-
-        args[0]->ToObject()->CallAsFunction(receiver, 3, argv);
-
-        free(buffer);
+static void Save(const FunctionCallbackInfo<Value>& args) {
+    if (args.Length() > 0) {
+        String::Utf8Value filename(args[0]->ToString());
+        sState->save(std::string(*filename));
     }
-
-    return args.This();
+    args.GetReturnValue().Set(args.This());
 }
 
-Handle<Value> Switch(const Arguments& args) {
-    sState->switch_scene();
-    return args.This();
-}
-
-static void cleanup(void *arg) {
-    delete (OffGrid*)arg;
+static void cleanup(void*) {
+    delete sState;
 }
 
 void init(Handle<Object> target) {
     sState = new OffGrid();
 
-    const char *argv[] = { "offgrid", "-w", "1024", "-h", "768" };
-    sState->init(5, argv);
+    const char *argv[] = {
+      "offgrid",
+      "--glscene", "sobel",
+      "--width", "1600",
+      "--height", "1200",
+      "--hflip", "--vflip",
+      "--glwin", "0,0,1600,1200"
+    };
+    sState->init(11, argv);
 
-    node::AtExit(cleanup, sState);
+    node::AtExit(cleanup);
 
     NODE_SET_METHOD(target, "tare", Tare);
+    NODE_SET_METHOD(target, "setData", SetData);
+    NODE_SET_METHOD(target, "sample", Sample);
     NODE_SET_METHOD(target, "find", Find);
-    NODE_SET_METHOD(target, "capture", Capture);
-    NODE_SET_METHOD(target, "switch", Switch);
+    NODE_SET_METHOD(target, "save", Save);
+    NODE_SET_METHOD(target, "width", Width);
+    NODE_SET_METHOD(target, "height", Height);
 }
 
 NODE_MODULE(offgrid, init);

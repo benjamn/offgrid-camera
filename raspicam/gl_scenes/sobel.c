@@ -69,7 +69,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
     "    vec4 p1 = texture2D(tex, vec2(x, y1));\n" \
     "    vec4 p2 = texture2D(tex, vec2(x2, y1));\n" \
     "    vec4 p3 = texture2D(tex, vec2(x1, y));\n" \
-    "    /* vec4 p4 = texture2D(tex, vec2(x, y)); */\n" \
+    "    vec4 p4 = texture2D(tex, vec2(x, y));\n" \
     "    vec4 p5 = texture2D(tex, vec2(x2, y));\n" \
     "    vec4 p6 = texture2D(tex, vec2(x1, y2));\n" \
     "    vec4 p7 = texture2D(tex, vec2(x, y2));\n" \
@@ -77,8 +77,11 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
     "\n" \
     "    vec4 v =  p0 + (2.0 * p1) + p3 -p6 + (-2.0 * p7) + -p8;\n" \
     "    vec4 h =  p0 + (2.0 * p3) + p7 -p2 + (-2.0 * p5) + -p8;\n" \
-    "    gl_FragColor = sqrt(h*h + v*v);\n" \
-    "    gl_FragColor.a = 1.0;\n" \
+    "    gl_FragColor = p4;\n" \
+    "    //gl_FragColor = (    p0 + 2.0*p1 +     p2 +\n" \
+    "    //                2.0*p3 + 4.0*p4 + 2.0*p5 +\n" \
+    "    //                    p6 + 2.0*p7 + p8) / 16.0;\n" \
+    "    gl_FragColor.a = 1.0;\n"                   \
     "}\n"
 
 static GLfloat quad_varray[] = {
@@ -170,11 +173,11 @@ end:
 static int sobel_redraw(RASPITEX_STATE* state)
 {
    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-   GLCHK(glUseProgram(sobel_shader.program));
+   /* GLCHK(glUseProgram(sobel_shader.program)); */
+   glLoadIdentity();
 
-   /* Bind the Y plane texture */
    GLCHK(glActiveTexture(GL_TEXTURE0));
-   GLCHK(glBindTexture(GL_TEXTURE_EXTERNAL_OES, state->y_texture));
+   GLCHK(glBindTexture(GL_TEXTURE_EXTERNAL_OES, state->texture));
    GLCHK(glBindBuffer(GL_ARRAY_BUFFER, quad_vbo));
    GLCHK(glEnableVertexAttribArray(sobel_shader.attribute_locations[0]));
    GLCHK(glVertexAttribPointer(sobel_shader.attribute_locations[0], 2, GL_FLOAT, GL_FALSE, 0, 0));
@@ -187,6 +190,6 @@ int sobel_open(RASPITEX_STATE *state)
 {
    state->ops.gl_init = sobel_init;
    state->ops.redraw = sobel_redraw;
-   state->ops.update_y_texture = raspitexutil_update_y_texture;
+   state->ops.update_texture = raspitexutil_update_texture;
    return 0;
 }

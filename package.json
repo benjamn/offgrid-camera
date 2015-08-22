@@ -26,7 +26,7 @@
     "url": "https://github.com/benjamn/offgrid-camera/issues"
   },
   "scripts": {
-    "install": "node-gyp rebuild"
+    "install": "node-gyp --debug rebuild"
   },
   "gypfile": true,
   "engines": {

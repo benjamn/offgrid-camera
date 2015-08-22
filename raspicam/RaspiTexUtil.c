@@ -190,6 +190,18 @@ static int raspitexutil_gl_common(RASPITEX_STATE *raspitex_state,
       goto error;
    }
 
+   int value = -1;
+   eglGetConfigAttrib(raspitex_state->display,
+                      config,
+                      EGL_MAX_PBUFFER_WIDTH,
+                      &value);
+   fprintf(stderr, "max width %d\n", value);
+   eglGetConfigAttrib(raspitex_state->display,
+                      config,
+                      EGL_MAX_PBUFFER_HEIGHT,
+                      &value);
+   fprintf(stderr, "max height %d\n", value);
+
    raspitex_state->surface = eglCreateWindowSurface(raspitex_state->display,
          config, raspitex_state->native_window, NULL);
    if (raspitex_state->surface == EGL_NO_SURFACE)

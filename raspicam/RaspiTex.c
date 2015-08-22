@@ -151,7 +151,9 @@ int raspitex_parse_cmdline(RASPITEX_STATE *state,
       {
          if (strcmp(arg2, "square") == 0)
             state->scene_id = RASPITEX_SCENE_SQUARE;
-         if (strcmp(arg2, "showtime") == 0)
+         else if (strcmp(arg2, "sobel") == 0)
+            state->scene_id = RASPITEX_SCENE_SOBEL;
+         else if (strcmp(arg2, "showtime") == 0)
             state->scene_id = RASPITEX_SCENE_SHOWTIME;
          else if (strcmp(arg2, "teapot") == 0)
             state->scene_id = RASPITEX_SCENE_SOBEL;

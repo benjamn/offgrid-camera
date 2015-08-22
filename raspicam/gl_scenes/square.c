@@ -43,10 +43,10 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 static const GLfloat vertices[] =
 {
-#define V0  -0.8,  0.8,  0.8,
-#define V1   0.8,  0.8,  0.8,
-#define V2   0.8, -0.8,  0.8,
-#define V3  -0.8, -0.8,  0.8,
+#define V0  -1,  1,  1,
+#define V1   1,  1,  1,
+#define V2   1, -1,  1,
+#define V3  -1, -1,  1,
    V0 V3 V2 V2 V1 V0
 };
 
