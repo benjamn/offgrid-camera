@@ -1,6 +1,6 @@
 {
   "name": "offgrid-camera",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "description": "Node library for reading live video data from the Raspberry Pi camera module",
   "author": {
     "name": "Ben Newman",
